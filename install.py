@@ -122,6 +122,10 @@ def proxy_preflight(settings):
     if not any(m["Type"] in ("bind", "volume") and m["Destination"] == "/etc/nginx/certs" and
                str(Path(m["Source"]).resolve()) == directory for m in proxy["Mounts"]):
         raise ValueError("explicit cert directory does not match proxy /etc/nginx/certs bind mount")
+    vhosts = [m["Source"] for m in proxy["Mounts"] if m["Destination"] == "/etc/nginx/vhost.d" and m["Type"] in ("bind", "volume")]
+    if len(vhosts) != 1:
+        raise ValueError("proxy requires a persistent per-host configuration directory")
+    settings["proxyVhostDir"] = str(Path(vhosts[0]).resolve(strict=True))
     run(["docker", "exec", settings["proxyContainer"], "nginx", "-t"])
 
 
@@ -145,13 +149,23 @@ def export_proxy(root, settings):
         if path.is_symlink():
             raise ValueError("proxy certificate targets must not be symlinks")
         previous.append(path.read_bytes() if path.exists() else None)
+    privacy = Path(settings["proxyVhostDir"]) / settings["hostname"]
+    private_config = b"# Managed by NahaN subscription gateway\naccess_log off;\nerror_log /dev/null crit;\n"
+    if privacy.is_symlink() or privacy.exists() and privacy.read_bytes() != private_config:
+        raise ValueError("existing domain proxy configuration is not gateway-owned")
+    old_privacy = privacy.read_bytes() if privacy.exists() else None
     # Host installer lock serializes exports; nginx only reads the pair on reload.
     try:
         for path, data, mode in targets:
             atomic(path, data, mode)
+        atomic(privacy, private_config, 0o644)
         run(["docker", "exec", settings["proxyContainer"], "nginx", "-t"])
         run(["docker", "exec", settings["proxyContainer"], "nginx", "-s", "reload"])
     except Exception:
+        if old_privacy is None:
+            privacy.unlink(missing_ok=True)
+        else:
+            atomic(privacy, old_privacy, 0o644)
         for (path, _, mode), data in zip(targets, previous):
             if data is None:
                 path.unlink(missing_ok=True)
