@@ -1,0 +1,11 @@
+/.cache/
+/.gopath/
+/.tmp/
+/gateway
+/__pycache__/
+/deploy/manifest.json
+/release/
+*.key
+*.pem
+*enrollment*.json
+deploy/__pycache__/

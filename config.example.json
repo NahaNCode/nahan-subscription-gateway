@@ -1,0 +1,16 @@
+{
+  "hostname": "subscriptions.example.com",
+  "listen": ":8443",
+  "upstreams": ["https://backend.example.com"],
+  "caFile": "/etc/nahan/ca.pem",
+  "edgeKeyFile": "/etc/nahan/edge-key",
+  "certFile": "/state/server.pem",
+  "keyFile": "/state/server.pem",
+  "challenge": "replace-with-backend-issued-challenge",
+  "certificateSync": true,
+  "certificatePollSeconds": 300,
+  "heartbeatSeconds": 60,
+  "maxResponseBytes": 4194304,
+  "maxConcurrent": 32,
+  "upstreamTimeoutSeconds": 10
+}

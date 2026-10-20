@@ -1,0 +1,36 @@
+services:
+  gateway:
+    image: ${GATEWAY_IMAGE:?digest-pinned image required}
+    restart: unless-stopped
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    stop_grace_period: 15s
+    volumes:
+      - ./config:/etc/nahan:ro
+      - ./state:/state:rw
+    expose: ["8080"]
+    environment:
+      VIRTUAL_HOST: ${GATEWAY_HOSTNAME:?hostname required}
+      VIRTUAL_PORT: "8080"
+      VIRTUAL_PROTO: http
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    networks: [proxy]
+    healthcheck:
+      test: [CMD, /gateway, -command, health-check]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:?existing proxy network required}
