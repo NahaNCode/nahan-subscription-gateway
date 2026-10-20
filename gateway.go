@@ -135,6 +135,27 @@ func cleanQuery(raw string) (string, bool) {
 	return q.Encode(), true
 }
 
+func cleanAssetQuery(raw string) (string, bool) {
+	if len(raw) > 128 {
+		return "", false
+	}
+	query, err := url.ParseQuery(raw)
+	if err != nil {
+		return "", false
+	}
+	for key, values := range query {
+		if key != "v" || len(values) != 1 || len(values[0]) == 0 || len(values[0]) > 64 {
+			return "", false
+		}
+		for _, ch := range values[0] {
+			if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '-' || ch == '_' || ch == '.') {
+				return "", false
+			}
+		}
+	}
+	return query.Encode(), true
+}
+
 func (g *Gateway) matchesHost(host string) bool {
 	return host == g.c.Hostname || host == g.c.Hostname+":443"
 }
@@ -181,6 +202,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query, ok := cleanQuery(r.URL.RawQuery)
+	if strings.HasPrefix(r.URL.Path, "/subscription-assets/") {
+		query, ok = cleanAssetQuery(r.URL.RawQuery)
+	}
 	if !ok {
 		fail(w, 400)
 		return

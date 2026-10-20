@@ -133,6 +133,30 @@ func TestUntrustedTLSAndCancellation(t *testing.T) {
 	}
 }
 
+func TestVersionedAssets(t *testing.T) {
+	calls := 0
+	g, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.RawQuery != "v=nahan-service-10" {
+			t.Error("asset version lost")
+		}
+		w.Header().Set("Content-Type", "text/css")
+		io.WriteString(w, "body{color:white}")
+	})
+	w := httptest.NewRecorder()
+	g.ServeHTTP(w, edgeRequest("GET", "https://connect.example.com/subscription-assets/subscription.css?v=nahan-service-10"))
+	if w.Code != 200 || calls != 1 {
+		t.Fatal("versioned stylesheet rejected")
+	}
+	for _, query := range []string{"v=one&v=two", "v=https://evil.example", "url=evil", "v=", "format=html"} {
+		w = httptest.NewRecorder()
+		g.ServeHTTP(w, edgeRequest("GET", "https://connect.example.com/subscription-assets/subscription.css?"+query))
+		if w.Code != 400 || calls != 1 {
+			t.Fatal("unsafe asset query forwarded")
+		}
+	}
+}
+
 func TestHeartbeatFailoverAndRevocation(t *testing.T) {
 	calls := 0
 	g, good := fixture(t, func(w http.ResponseWriter, r *http.Request) {
