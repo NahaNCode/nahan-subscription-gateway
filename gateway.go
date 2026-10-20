@@ -207,6 +207,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusMisdirectedRequest)
 		return
 	}
+	// Avoid stale HTTP/1.1 origin connections in CDN pools for registered aliases.
+	if r.ProtoMajor == 1 && r.Host != g.c.Hostname && r.Host != g.c.Hostname+":443" {
+		w.Header().Set("Connection", "close")
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		fail(w, 405)

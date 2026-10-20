@@ -170,10 +170,10 @@ def export_proxy(root, settings):
     managed_config = private_config
     if old_config is not None and old_config != managed_config:
         tail = old_config.removeprefix(managed_config)
-        if not old_config.startswith(managed_config) or not re.fullmatch(rb"server_name [a-z0-9. -]+;\n", tail):
+        if not old_config.startswith(managed_config) or not re.fullmatch(rb"server_name [a-z0-9. -]+;\n(?:keepalive_timeout 0;\n)?", tail):
             raise ValueError("existing domain proxy configuration is not gateway-owned")
     if aliases:
-        private_config += ("server_name " + " ".join(aliases) + ";\n").encode()
+        private_config += ("server_name " + " ".join(aliases) + ";\nkeepalive_timeout 0;\n").encode()
     if privacy.is_symlink():
         raise ValueError("existing domain proxy configuration is not gateway-owned")
     old_privacy = privacy.read_bytes() if privacy.exists() else None

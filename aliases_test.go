@@ -1,9 +1,28 @@
 package main
 
 import (
+	"net/http/httptest"
 	"testing"
 	"time"
 )
+
+func TestAliasConnectionsCloseWithoutChangingOrigin(t *testing.T) {
+	g := &Gateway{c: Config{Hostname: "origin.example.com"}}
+	if err := g.setAliases([]string{"nnn.fg-t.ir"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, host := range []string{"origin.example.com", "nnn.fg-t.ir"} {
+		r := edgeRequest("GET", "https://"+host+"/healthz")
+		w := httptest.NewRecorder()
+		g.ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatal("health check failed")
+		}
+		if (w.Header().Get("Connection") == "close") != (host == "nnn.fg-t.ir") {
+			t.Fatal("connection policy must be alias-scoped")
+		}
+	}
+}
 
 func TestManagedHostAliases(t *testing.T) {
 	g := &Gateway{c: Config{Hostname: "origin.example.com"}}
