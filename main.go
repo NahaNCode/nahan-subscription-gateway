@@ -94,6 +94,9 @@ func main() {
 		if err := g.syncCertificate(context.Background()); err != nil {
 			log.Fatal("certificate bootstrap failed")
 		}
+		if err := g.heartbeat(context.Background()); err != nil {
+			log.Print("host alias synchronization failed")
+		}
 		log.Print("certificate synchronized")
 		return
 	}

@@ -141,11 +141,15 @@ func (g *Gateway) heartbeat(ctx context.Context) error {
 		return err
 	}
 	var desired struct {
-		Hostname        string `json:"hostname"`
-		DesiredRevision int64  `json:"desiredRevision"`
+		Hostname        string   `json:"hostname"`
+		DesiredRevision int64    `json:"desiredRevision"`
+		HostAliases     []string `json:"hostAliases"`
 	}
 	if json.Unmarshal(response, &desired) != nil || desired.Hostname != g.c.Hostname {
 		return errors.New("heartbeat response invalid")
+	}
+	if err := g.setAliases(desired.HostAliases); err != nil {
+		return err
 	}
 	if desired.DesiredRevision > g.c.AppliedRevision {
 		g.c.AppliedRevision = desired.DesiredRevision
@@ -154,6 +158,9 @@ func (g *Gateway) heartbeat(ctx context.Context) error {
 }
 
 func (g *Gateway) controlLoop(ctx context.Context) {
+	if err := g.heartbeat(ctx); err != nil {
+		log.Print("initial heartbeat failed")
+	}
 	certTick := time.NewTicker(time.Duration(g.c.CertificatePollSeconds) * time.Second)
 	heartTick := time.NewTicker(time.Duration(g.c.HeartbeatSeconds) * time.Second)
 	defer certTick.Stop()

@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,10 +36,13 @@ func newHTTPClient(t *tls.Config, timeout time.Duration, concurrent int) *http.C
 }
 
 type Gateway struct {
-	c       Config
-	client  *http.Client
-	edgeKey string
-	slots   chan struct{}
+	c            Config
+	client       *http.Client
+	edgeKey      string
+	slots        chan struct{}
+	aliasMu      sync.RWMutex
+	aliases      map[string]bool
+	aliasesUntil time.Time
 }
 
 func newGateway(c Config) (*Gateway, error) {
@@ -157,7 +163,36 @@ func cleanAssetQuery(raw string) (string, bool) {
 }
 
 func (g *Gateway) matchesHost(host string) bool {
-	return host == g.c.Hostname || host == g.c.Hostname+":443"
+	if host == g.c.Hostname || host == g.c.Hostname+":443" {
+		return true
+	}
+	g.aliasMu.RLock()
+	defer g.aliasMu.RUnlock()
+	return time.Now().Before(g.aliasesUntil) && g.aliases[strings.TrimSuffix(host, ":443")]
+}
+
+func (g *Gateway) setAliases(hosts []string) error {
+	if len(hosts) > 50 {
+		return errors.New("too many host aliases")
+	}
+	aliases := make(map[string]bool, len(hosts))
+	for _, host := range hosts {
+		if !validHostname(host) || !strings.Contains(host, ".") || host != strings.ToLower(host) {
+			return errors.New("invalid host alias")
+		}
+		aliases[host] = true
+	}
+	if g.c.BehindProxy && g.c.CertificateSync {
+		b, _ := json.Marshal(hosts)
+		if err := atomicWrite(filepath.Join(filepath.Dir(g.c.CertFile), "host-aliases.json"), b); err != nil {
+			return errors.New("cannot synchronize proxy aliases")
+		}
+	}
+	g.aliasMu.Lock()
+	g.aliases = aliases
+	g.aliasesUntil = time.Now().Add(5 * time.Minute)
+	g.aliasMu.Unlock()
+	return nil
 }
 
 func fail(w http.ResponseWriter, status int) {
