@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-release=https://github.com/NahaNCode/nahan-subscription-gateway/releases/download/v0.1.1
+release=https://github.com/NahaNCode/nahan-subscription-gateway/releases/download/v0.1.2
 manifest_sha=__MANIFEST_SHA256__
 installer_sha=__INSTALLER_SHA256__
 work=$(mktemp -d)

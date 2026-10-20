@@ -28,6 +28,8 @@ type certificateResponse struct {
 func (g *Gateway) controlRequest(ctx context.Context, method, path string, payload []byte) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(g.c.UpstreamTimeoutSeconds)*time.Second)
 	defer cancel()
+	// Heartbeat only records an idempotent receipt; it is safe to replay.
+	retryable := method == http.MethodGet || method == http.MethodPost && path == heartbeatPath
 	for i, origin := range g.c.Upstreams {
 		u, _ := url.Parse(origin)
 		u.Path = path
@@ -42,12 +44,12 @@ func (g *Gateway) controlRequest(ctx context.Context, method, path string, paylo
 		}
 		resp, err := g.client.Do(req)
 		if err != nil {
-			if method == http.MethodGet && ctx.Err() == nil {
+			if retryable && ctx.Err() == nil {
 				continue
 			}
 			return nil, errors.New("control unavailable")
 		}
-		if method == http.MethodGet && i+1 < len(g.c.Upstreams) && (resp.StatusCode == 502 || resp.StatusCode == 503 || resp.StatusCode == 504) {
+		if retryable && i+1 < len(g.c.Upstreams) && (resp.StatusCode == 502 || resp.StatusCode == 503 || resp.StatusCode == 504) {
 			resp.Body.Close()
 			continue
 		}

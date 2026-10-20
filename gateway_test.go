@@ -133,6 +133,31 @@ func TestUntrustedTLSAndCancellation(t *testing.T) {
 	}
 }
 
+func TestHeartbeatFailoverAndRevocation(t *testing.T) {
+	calls := 0
+	g, good := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Method != http.MethodPost || r.URL.Path != heartbeatPath {
+			t.Error("incorrect receipt")
+		}
+		io.WriteString(w, `{"hostname":"connect.example.com","desiredRevision":2}`)
+	})
+	bad := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(503) }))
+	defer bad.Close()
+	g.c.Upstreams = []string{bad.URL, good.URL}
+	if err := g.heartbeat(context.Background()); err != nil || calls != 1 || g.c.AppliedRevision != 2 {
+		t.Fatal("receipt failover failed")
+	}
+	bad.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(401) })
+	if err := g.heartbeat(context.Background()); err == nil || calls != 1 {
+		t.Fatal("revocation was retried")
+	}
+	bad.Close()
+	if err := g.heartbeat(context.Background()); err != nil || calls != 2 {
+		t.Fatal("network fallback failed")
+	}
+}
+
 func TestCertificateValidation(t *testing.T) {
 	_, server := fixture(t, func(http.ResponseWriter, *http.Request) {})
 	cert := server.TLS.Certificates[0]
