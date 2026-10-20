@@ -102,6 +102,11 @@ def compose(root, *args):
                 "-f", str(root / "compose.yaml"), *args], capture=True)
 
 
+def start_gateway(root):
+    # Bind-mounted enrollment changes do not trigger Compose's config detection.
+    compose(root, "up", "-d", "--force-recreate", "--wait", "--wait-timeout", "30")
+
+
 def docker_cert_sync(root, settings):
     cmd = ["docker", "run", "--rm", "--read-only", "--user", "65532:65532", "--cap-drop", "ALL",
            "--security-opt", "no-new-privileges:true", "--pids-limit", "64", "--memory", "256m", "--cpus", "1",
@@ -338,7 +343,7 @@ def main():
         if args.behind_proxy:
             export_proxy(root, settings)
         atomic(identity_file, (json.dumps(settings, indent=2) + "\n").encode())
-        compose(root, "up", "-d", "--wait", "--wait-timeout", "30")
+        start_gateway(root)
         if args.install_timer:
             install_timer(root)
         print("Gateway installed. Protected backups remain in the install directory.")

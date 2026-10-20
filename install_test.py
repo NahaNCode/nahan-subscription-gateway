@@ -5,11 +5,17 @@ from pathlib import Path
 import tempfile
 import types
 import unittest
+from unittest import mock
 
 spec=importlib.util.spec_from_file_location('installer',Path(__file__).with_name('install.py'))
 installer=importlib.util.module_from_spec(spec);spec.loader.exec_module(installer)
 
 class InstallerTest(unittest.TestCase):
+ def test_explicit_install_recreates_gateway_to_reload_credentials(self):
+  root=Path('/opt/nahan-edge')
+  with mock.patch.object(installer,'compose') as compose:
+   installer.start_gateway(root)
+  compose.assert_called_once_with(root,'up','-d','--force-recreate','--wait','--wait-timeout','30')
  def test_bundle_verifies_all_file_hashes(self):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);files={}
