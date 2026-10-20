@@ -26,17 +26,21 @@ func loadServerPair(c Config) (tls.Certificate, error) {
 	return tls.LoadX509KeyPair(c.CertFile, c.KeyFile)
 }
 
-func serverTLS(c Config) (*tls.Config, error) {
+func serverTLS(c Config, allowedHost func(string) bool) (*tls.Config, error) {
 	if _, err := loadServerPair(c); err != nil {
 		return nil, err
 	}
 	return &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-		if hello.ServerName != c.Hostname {
+		if hello.ServerName != c.Hostname && (allowedHost == nil || !validHostname(hello.ServerName) || !allowedHost(hello.ServerName)) {
 			return nil, os.ErrPermission
 		}
 		cert, err := loadServerPair(c)
 		if err != nil {
 			return nil, err
+		}
+		leaf, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil || leaf.VerifyHostname(hello.ServerName) != nil || time.Now().Before(leaf.NotBefore) || !time.Now().Before(leaf.NotAfter) {
+			return nil, os.ErrPermission
 		}
 		return &cert, nil
 	}}, nil
@@ -103,7 +107,7 @@ func main() {
 	if *command != "serve" {
 		log.Fatal("unknown command")
 	}
-	t, err := serverTLS(c)
+	t, err := serverTLS(c, g.matchesHost)
 	if err != nil {
 		log.Fatal("server certificate/key invalid")
 	}

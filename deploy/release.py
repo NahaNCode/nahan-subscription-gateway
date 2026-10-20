@@ -7,8 +7,8 @@ import sys
 import os
 
 image=sys.argv[1]
-version=os.environ.get('GITHUB_REF_NAME','v0.1.6')
-if version!='v0.1.6':raise SystemExit('Release version does not match installer')
+version=os.environ.get('GITHUB_REF_NAME','v0.1.7')
+if version!='v0.1.7':raise SystemExit('Release version does not match installer')
 if not re.fullmatch(r'ghcr\.io/nahancode/nahan-subscription-gateway@sha256:[a-f0-9]{64}',image):
  raise SystemExit('Immutable gateway image required')
 root=Path(__file__).resolve().parent.parent
