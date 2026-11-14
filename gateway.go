@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -87,7 +89,7 @@ func allowedPath(u *url.URL) bool {
 	}
 	p := strings.Split(u.Path, "/")
 	if len(p) >= 3 && (p[1] == "s" || p[1] == "link") && safeSegment(p[2], 512) {
-		return len(p) == 3 || len(p) == 4 && (p[3] == "presentation" || p[1] == "s" && p[3] == "qr.png")
+		return len(p) == 3 || len(p) == 4 && (p[3] == "presentation" || p[3] == "emergency" || p[1] == "s" && p[3] == "qr.png")
 	}
 	if len(p) >= 3 && p[1] == "subscription-assets" {
 		for _, part := range p[2:] {
@@ -200,6 +202,8 @@ func fail(w http.ResponseWriter, status int) {
 	http.Error(w, http.StatusText(status), status)
 }
 
+var claimUUID = regexp.MustCompile(`^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`)
+
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
@@ -211,12 +215,35 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.ProtoMajor == 1 && r.Host != g.c.Hostname && r.Host != g.c.Hostname+":443" {
 		w.Header().Set("Connection", "close")
 	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+	emergency := allowedPath(r.URL) && strings.HasSuffix(r.URL.Path, "/emergency") && (strings.HasPrefix(r.URL.Path, "/s/") || strings.HasPrefix(r.URL.Path, "/link/"))
+	claim := emergency && r.Method == http.MethodPost
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && !claim {
 		w.Header().Set("Allow", "GET, HEAD")
 		fail(w, 405)
 		return
 	}
-	if r.ContentLength != 0 || len(r.TransferEncoding) != 0 {
+	var claimBody []byte
+	if claim {
+		origin, err := url.Parse(r.Header.Get("Origin"))
+		if err != nil || origin.Scheme != "https" || origin.Host != r.Host || r.URL.RawQuery != "" {
+			fail(w, 403)
+			return
+		}
+		claimBody, err = io.ReadAll(io.LimitReader(r.Body, 1025))
+		if err != nil || len(claimBody) > 1024 {
+			fail(w, 413)
+			return
+		}
+		var body struct {
+			RequestID string `json:"requestId"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(claimBody))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&body) != nil || !claimUUID.MatchString(body.RequestID) || decoder.Decode(new(any)) != io.EOF {
+			fail(w, 422)
+			return
+		}
+	} else if r.ContentLength != 0 || len(r.TransferEncoding) != 0 {
 		fail(w, 400)
 		return
 	}
@@ -261,7 +288,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for i, origin := range g.c.Upstreams {
 		u, _ := url.Parse(origin)
 		u.Path, u.RawQuery = r.URL.Path, query
-		req, err := http.NewRequestWithContext(ctx, r.Method, u.String(), nil)
+		req, err := http.NewRequestWithContext(ctx, r.Method, u.String(), bytes.NewReader(claimBody))
 		if err != nil {
 			fail(w, 502)
 			return
@@ -269,6 +296,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// A fresh header map avoids forwarding auth, cookies, proxy and hop headers.
 		req.Header.Set("X-Nahan-Subscription-Edge-Key", g.edgeKey)
 		req.Header.Set("X-Nahan-Subscription-Domain", g.c.Hostname)
+		if claim {
+			req.Header.Set("Content-Type", "application/json")
+		}
 		agent := r.Header.Get("User-Agent")
 		if len(agent) > 512 {
 			agent = agent[:512]
